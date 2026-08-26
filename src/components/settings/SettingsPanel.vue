@@ -1,5 +1,24 @@
 <template>
-  <div class="blur-overlay" v-if="shouldShowOverlay" :style="{ opacity: overlayOpacity }"></div>
+  <!-- Windows 静态快照背景：blur 在图片自身，不再用 backdrop-filter 持续消耗 GPU -->
+  <div
+    v-if="isWindowsMode && shouldShowOverlay"
+    class="snapshot-bg-wrap"
+    :style="{ opacity: overlayOpacity }"
+  >
+    <img
+      v-if="snapshotSrc && !snapshotFailed"
+      :src="snapshotSrc"
+      class="snapshot-bg"
+      draggable="false"
+      alt=""
+    />
+    <div class="snapshot-dim" :class="{ 'snapshot-dim--fallback': snapshotFailed }"></div>
+  </div>
+  <div
+    v-else-if="shouldShowOverlay"
+    class="blur-overlay"
+    :style="{ opacity: overlayOpacity }"
+  ></div>
   <div class="settings-panel flex flex-col h-full" v-show="uiStore.showSettings">
     <div class="shrink-0 w-full">
       <SettingsNav ref="settingsNavRef" @remove-more-menu-from-a="onAddFromA" />
@@ -44,32 +63,50 @@ import {
 import SettingsNav from './SettingsNav.vue'
 import { useUIStore } from '../../stores/modules/ui/ui'
 import { ref, watch, computed, type Component } from 'vue'
+import { isWindows } from '@/utils/platform'
+import { useSettingsSnapshot } from '@/composables/useSettingsSnapshot'
 
 const uiStore = useUIStore()
+const { snapshotSrc, snapshotFailed } = useSettingsSnapshot()
+const isWindowsMode = computed(() => isWindows())
 
 // 获取 A 组件和 B 组件的 Ref 实例
 const settingsNavRef = ref<InstanceType<typeof SettingsNav> | null>(null)
 const settingsAdvanceRef = ref<InstanceType<typeof SettingsAdvance> | null>(null)
 
-// 添加延迟状态
+// 添加延迟状态（带 session 守卫，避免快速开关时旧定时器影响新会话）
 const shouldShowOverlay = ref(false)
 const overlayOpacity = ref(0)
+let overlaySession = 0
+let showTimer: ReturnType<typeof setTimeout> | null = null
+let hideTimer: ReturnType<typeof setTimeout> | null = null
 
 watch(
   () => uiStore.showSettings,
   (newVal) => {
+    const mySession = ++overlaySession
+    if (showTimer) {
+      clearTimeout(showTimer)
+      showTimer = null
+    }
+    if (hideTimer) {
+      clearTimeout(hideTimer)
+      hideTimer = null
+    }
     if (newVal) {
       // 显示时：立即显示元素，然后延迟改变透明度
       shouldShowOverlay.value = true
-      setTimeout(() => {
+      showTimer = setTimeout(() => {
+        if (mySession !== overlaySession) return
         overlayOpacity.value = 1
       }, 10) // 使用很小的延迟确保浏览器有机会渲染
     } else {
       // 隐藏时：先改变透明度，然后延迟隐藏元素
       overlayOpacity.value = 0
-      setTimeout(() => {
+      hideTimer = setTimeout(() => {
+        if (mySession !== overlaySession) return
         shouldShowOverlay.value = false
-      }, 100) // 匹配你的动画持续时间
+      }, 300) // 与 CSS transition 0.3s 对齐，避免旧 hide 覆盖新 show
     }
   },
   { immediate: true },
@@ -212,6 +249,34 @@ defineExpose({
   z-index: 999;
   transition: opacity 0.3s ease;
   opacity: 0;
+}
+
+.snapshot-bg-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  overflow: hidden;
+  transition: opacity 0.3s ease;
+  opacity: 0;
+}
+
+.snapshot-bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(8px) brightness(0.85);
+  transform: scale(1.02);
+  display: block;
+}
+
+.snapshot-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.snapshot-dim--fallback {
+  background: rgba(0, 0, 0, 0.72);
 }
 
 .settings-panel {
