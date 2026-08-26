@@ -22,7 +22,7 @@
 
     <!-- 人物图层（位于星星之上，菜单之下） -->
     <img
-      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-full z-[3] pointer-events-none will-change-transform"
+      class="absolute top-1/2 left-1/2 transform-[translate(-50%,-50%)] max-w-full max-h-full z-[3] pointer-events-none will-change-transform"
       ref="charRef"
       src="../../assets/images/alona.png"
       :alt="$t('views.mainMenu.characterAlt')"
@@ -132,7 +132,7 @@
     if (currentPage.value === "mainMenu") return "";
     // Windows 快照态：不做实时模糊，静态快照已在 SettingsPanel 内
     if (isWindowsMode.value) return "";
-    return "before:content-[''] before:absolute before:inset-0 before:backdrop-blur-[12px] before:brightness-90 before:z-10 before:pointer-events-none";
+    return "before:content-[''] before:absolute before:inset-0 before:backdrop-blur-[12px] before:backdrop-brightness-90 before:z-10 before:pointer-events-none";
   });
   const settingsSnapshot = useSettingsSnapshot();
   let settingsSnapshotSession: number | null = null;
