@@ -1,7 +1,7 @@
 <template>
   <div
     class="main-menu-page"
-    :class="{ 'main-menu-page--panel-active': currentPage !== 'mainMenu' }"
+    :class="panelClass"
   >
     <MainChat v-if="currentPage === 'gameMainView'" />
     <Settings v-else-if="currentPage === 'settings'" />
@@ -13,15 +13,15 @@
       ref="bgRef"
     ></div>
 
-    <!-- 流星层（SVG动画） -->
+    <!-- 流星层（SVG动画）— 临时暂停不污染持久偏好 -->
     <MeteorAnimation
-      :meteors-enabled="meteorsEnabled"
+      :meteors-enabled="effectiveMeteorsEnabled"
       :meteor-fps="meteorFps"
     />
 
     <!-- 星星粒子层（位于背景和人物之间） -->
     <StarAnimation
-      :stars-enabled="starsEnabled"
+      :stars-enabled="effectiveStarsEnabled"
       :stars-layer-ref="starsLayerRef"
       :stars-fps="starsFps"
     />
@@ -90,7 +90,7 @@
 <script setup lang="ts">
 import { StartLogo, StartPage } from './menu/base'
 import { WorkshopOptions, GameModeOptions, MainMenuOptions, ScriptModeOptions } from './menu/page'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MainChat from './MainChat.vue'
 import { SettingsPanel as Settings } from '../settings/'
@@ -105,6 +105,8 @@ import MeteorAnimation from '../game/standard/animations/MeteorAnimation.vue'
 import StarAnimation from '../game/standard/animations/StarAnimation.vue'
 import { useParallaxAnimation } from '../game/standard/animations/ParallaxAnimation'
 import { useI18n } from 'vue-i18n'
+import { isWindows } from '@/utils/platform'
+import { useSettingsSnapshot } from '@/composables/useSettingsSnapshot'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -120,6 +122,21 @@ const starsEnabled = computed(() => settingsStore.mainMenuStarsEnabled)
 const meteorsEnabled = computed(() => settingsStore.mainMenuMeteorsEnabled)
 const meteorFps = computed(() => settingsStore.meteorFps)
 const starsFps = computed(() => settingsStore.starsFps)
+
+// 临时暂停（内存态，不写入持久化）— 仅 Windows 快照期间生效
+const isWindowsMode = computed(() => isWindows())
+const transientSuspend = ref(false)
+const effectiveStarsEnabled = computed(() => starsEnabled.value && !transientSuspend.value)
+const effectiveMeteorsEnabled = computed(() => meteorsEnabled.value && !transientSuspend.value)
+const parallaxEnabled = computed(() => !transientSuspend.value)
+const panelClass = computed(() => {
+  if (currentPage.value === 'mainMenu') return {}
+  // Windows 用静态快照背景时，不再用 backdrop-filter 实时模糊
+  if (isWindowsMode.value) return { 'main-menu-page--snapshot-active': true }
+  return { 'main-menu-page--panel-active': true }
+})
+const settingsSnapshot = useSettingsSnapshot()
+let settingsSnapshotSession: number | null = null
 
 // DOM Refs
 const containerRef = ref<HTMLElement | null>(null)
@@ -175,7 +192,35 @@ const handleContinueGame = async () => {
   }
 }
 
-function handleOpenSettings(tab?: string) {
+async function hideMenuForSnapshot(): Promise<void> {
+  const el = containerRef.value as unknown as HTMLElement | null
+  if (!el) return
+  el.style.visibility = 'hidden'
+  await nextTick()
+  // 双 rAF 确保重绘完成再截
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+}
+
+function restoreMenuVisibility() {
+  const el = containerRef.value as unknown as HTMLElement | null
+  if (el) el.style.visibility = ''
+}
+
+async function handleOpenSettings(tab?: string) {
+  // Windows：先截图（含星/流星/人物，不含按钮/Logo），再暂停动画
+  if (isWindowsMode.value) {
+    await hideMenuForSnapshot()
+    try {
+      await settingsSnapshot.capture()
+      settingsSnapshotSession = settingsSnapshot.snapshotSessionId.value || null
+    } catch (e) {
+      console.warn('[MainMenu] snapshot capture error:', e)
+    } finally {
+      restoreMenuVisibility()
+    }
+    // 临时暂停（不污染持久偏好）
+    transientSuspend.value = true
+  }
   uiStore.toggleSettings(true)
   if (tab === 'save') {
     currentPage.value = 'save'
@@ -191,16 +236,30 @@ watch(
     if (!newVal && (currentPage.value === 'settings' || currentPage.value === 'save')) {
       currentPage.value = 'mainMenu'
       menuState.value = 'main'
+      // 恢复动画（按最新持久值）
+      if (transientSuspend.value) transientSuspend.value = false
+      // 释放静态背景临时资源（session守卫）
+      if (isWindowsMode.value && settingsSnapshotSession !== null) {
+        const sid = settingsSnapshotSession
+        settingsSnapshotSession = null
+        settingsSnapshot.release(sid).catch(() => {})
+      } else if (isWindowsMode.value) {
+        settingsSnapshot.release().catch(() => {})
+      }
     }
   },
 )
 
 /* ================== 视差动画 Hook ================== */
-const { handleMouseMove, handleMouseLeave } = useParallaxAnimation({
-  charRef,
-  bgRef,
-  starsLayerRef,
-})
+const { handleMouseMove, handleMouseLeave } = useParallaxAnimation(
+  {
+    charRef,
+    bgRef,
+    starsLayerRef,
+  },
+  {},
+  parallaxEnabled,
+)
 
 // 抽取接口请求逻辑，不阻塞动画初始化
 async function fetchScripts() {
@@ -262,6 +321,16 @@ onMounted(() => {
   position: absolute;
   inset: 0;
   backdrop-filter: blur(12px) brightness(0.9);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.main-menu-page--snapshot-active::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  backdrop-filter: none;
+  background: none;
   z-index: 10;
   pointer-events: none;
 }

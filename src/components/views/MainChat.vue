@@ -66,8 +66,9 @@ import { eventQueue } from '@/core/events/event-queue'
 
 import GameExtraUI from '../game/standard/GameExtraUI.vue'
 import ImageSourcePicker from '@/components/ui/ImageSourcePicker.vue'
-import { isAndroid } from '@/utils/platform'
+import { isAndroid, isWindows } from '@/utils/platform'
 import FullAccessWarning from '@/components/tools/FullAccessWarning.vue'
+import { useSettingsSnapshot } from '@/composables/useSettingsSnapshot'
 
 const LOADING_STORAGE_KEY = 'lingchat_loading_shown'
 
@@ -96,13 +97,39 @@ const goToPetMode = () => {
 }
 
 const gameDialogRef = ref<InstanceType<typeof GameDialog> | null>(null)
+const settingsSnapshot = useSettingsSnapshot()
+let settingsSnapshotSession: number | null = null
 
-const openSettings = () => {
-  // 后台截图（不阻塞 UI），设置面板立即打开
+const openSettings = async () => {
+  // 存档截图（原逻辑，保留用于存档预览）
   gameStore.captureScreenshot()
+  // Windows 静态背景快照：游戏画面全窗，失败不阻塞
+  if (isWindows()) {
+    try {
+      await settingsSnapshot.capture()
+      settingsSnapshotSession = settingsSnapshot.snapshotSessionId.value || null
+    } catch (e) {
+      console.warn('[MainChat] settings snapshot failed:', e)
+    }
+  }
   uiStore.toggleSettings(true)
   uiStore.setSettingsTab('text')
 }
+
+// 关闭设置后释放 Windows 静态背景临时资源
+watch(
+  () => uiStore.showSettings,
+  (show) => {
+    if (!show && isWindows() && settingsSnapshotSession !== null) {
+      const sid = settingsSnapshotSession
+      settingsSnapshotSession = null
+      settingsSnapshot.release(sid).catch(() => {})
+    } else if (!show && isWindows() && settingsSnapshot.snapshotSrc.value) {
+      // 兜底：MainMenu 未释放时由游戏侧释放
+      settingsSnapshot.release().catch(() => {})
+    }
+  },
+)
 
 const switchAutoMode = () => {
   uiStore.autoMode = !uiStore.autoMode
