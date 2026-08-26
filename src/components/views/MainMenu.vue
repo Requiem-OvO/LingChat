@@ -1,11 +1,14 @@
 <template>
-  <div class="main-menu-page" :class="panelClass">
+  <div class="w-full h-full relative overflow-hidden" :class="panelClass">
     <MainChat v-if="currentPage === 'gameMainView'" />
     <Settings v-else-if="currentPage === 'settings'" />
     <Save v-else-if="currentPage === 'save'" />
 
     <!-- 背景层（最底层） -->
-    <div class="video-background" ref="bgRef"></div>
+    <div
+      class="absolute top-0 left-[-10%] w-[120%] h-full bg-cover bg-center bg-[url('../../assets/images/background2.png')] z-[-2] will-change-transform"
+      ref="bgRef"
+    ></div>
 
     <!-- 流星层（SVG动画）— 临时暂停不污染持久偏好 -->
     <MeteorAnimation :meteors-enabled="effectiveMeteorsEnabled" :meteor-fps="meteorFps" />
@@ -19,7 +22,7 @@
 
     <!-- 人物图层（位于星星之上，菜单之下） -->
     <img
-      class="character-image"
+      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-full z-[3] pointer-events-none will-change-transform"
       ref="charRef"
       src="../../assets/images/alona.png"
       :alt="$t('views.mainMenu.characterAlt')"
@@ -126,10 +129,10 @@
   const effectiveMeteorsEnabled = computed(() => meteorsEnabled.value && !transientSuspend.value);
   const parallaxEnabled = computed(() => !transientSuspend.value);
   const panelClass = computed(() => {
-    if (currentPage.value === "mainMenu") return {};
-    // Windows 用静态快照背景时，不再用 backdrop-filter 实时模糊
-    if (isWindowsMode.value) return { "main-menu-page--snapshot-active": true };
-    return { "main-menu-page--panel-active": true };
+    if (currentPage.value === "mainMenu") return "";
+    // Windows 快照态：不做实时模糊，静态快照已在 SettingsPanel 内
+    if (isWindowsMode.value) return "";
+    return "before:content-[''] before:absolute before:inset-0 before:backdrop-blur-[12px] before:brightness-90 before:z-10 before:pointer-events-none";
   });
   const settingsSnapshot = useSettingsSnapshot();
   let settingsSnapshotSession: number | null = null;
@@ -322,32 +325,6 @@
     font-display: swap;
   }
 
-  .main-menu-page {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .main-menu-page--panel-active::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    backdrop-filter: blur(12px) brightness(0.9);
-    z-index: 10;
-    pointer-events: none;
-  }
-
-  .main-menu-page--snapshot-active::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    backdrop-filter: none;
-    background: none;
-    z-index: 10;
-    pointer-events: none;
-  }
-
   /* 菜单容器 */
 
   /* 页面切换动画 */
@@ -374,34 +351,5 @@
   .slide-right-leave-to {
     transform: translateX(120%);
     opacity: 0;
-  }
-
-  /* ========== 背景层 ========== */
-  .video-background {
-    position: absolute;
-    top: 0;
-    left: -10%;
-    width: 120%;
-    height: 100%;
-    background-image: url("../../assets/images/background2.png");
-    background-size: cover;
-    background-position: center;
-    z-index: -2;
-    /* 移除 transition */
-    will-change: transform;
-  }
-
-  /* ========== 人物图层 ========== */
-  .character-image {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    max-width: 100%;
-    max-height: 100%;
-    z-index: 3;
-    pointer-events: none;
-    /* 移除 transition */
-    will-change: transform;
   }
 </style>

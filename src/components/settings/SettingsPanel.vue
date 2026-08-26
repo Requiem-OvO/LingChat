@@ -2,28 +2,34 @@
   <!-- Windows 静态快照背景：blur 在图片自身，不再用 backdrop-filter 持续消耗 GPU -->
   <div
     v-if="isWindowsMode && shouldShowOverlay"
-    class="snapshot-bg-wrap"
+    class="fixed inset-0 z-[999] overflow-hidden transition-opacity duration-300"
     :style="{ opacity: overlayOpacity }"
   >
     <img
       v-show="snapshotSrc && !snapshotFailed"
       ref="snapshotImgRef"
       :src="snapshotSrc ?? undefined"
-      class="snapshot-bg"
-      :class="{ 'is-ready': imgReady }"
+      class="w-full h-full object-cover blur-[8px] brightness-[0.85] scale-[1.02] block transition-opacity duration-300"
+      :class="imgReady ? 'opacity-100' : 'opacity-0'"
       draggable="false"
       alt=""
       @load="onSnapshotLoad"
       @error="onSnapshotError"
     />
-    <div class="snapshot-dim" :class="{ 'snapshot-dim--fallback': snapshotFailed }"></div>
+    <div
+      class="absolute inset-0 transition-colors duration-300"
+      :class="snapshotFailed ? 'bg-black/72' : 'bg-black/35'"
+    ></div>
   </div>
   <div
     v-else-if="shouldShowOverlay"
-    class="blur-overlay"
+    class="fixed inset-0 bg-black/70 backdrop-blur-[8px] z-[999] transition-opacity duration-300"
     :style="{ opacity: overlayOpacity }"
   ></div>
-  <div class="settings-panel flex flex-col h-full" v-show="uiStore.showSettings">
+  <div
+    class="fixed inset-0 z-[1000] bg-transparent text-[var(--text-primary,#fff)] flex flex-col h-full"
+    v-show="uiStore.showSettings"
+  >
     <div class="shrink-0 w-full">
       <SettingsNav ref="settingsNavRef" @remove-more-menu-from-a="onAddFromA" />
     </div>
@@ -290,66 +296,6 @@ defineExpose({
 </script>
 
 <style scoped>
-.blur-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  z-index: 999;
-  transition: opacity 0.3s ease;
-  opacity: 0;
-}
-
-.snapshot-bg-wrap {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-  overflow: hidden;
-  transition: opacity 0.3s ease;
-  opacity: 0;
-}
-
-.snapshot-bg {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: blur(8px) brightness(0.85);
-  transform: scale(1.02);
-  display: block;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.snapshot-bg.is-ready {
-  opacity: 1;
-}
-
-.snapshot-dim {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  transition: background 0.3s ease;
-}
-
-.snapshot-dim--fallback {
-  background: rgba(0, 0, 0, 0.72);
-}
-
-.settings-panel {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1000;
-  background: transparent;
-  color: var(--text-primary, #fff);
-}
-
 .slide-left-enter-active,
 .slide-left-leave-active,
 .slide-right-enter-active,
