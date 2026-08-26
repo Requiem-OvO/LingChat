@@ -6,11 +6,15 @@
     :style="{ opacity: overlayOpacity }"
   >
     <img
-      v-if="snapshotSrc && !snapshotFailed"
-      :src="snapshotSrc"
+      v-show="snapshotSrc && !snapshotFailed"
+      ref="snapshotImgRef"
+      :src="snapshotSrc ?? undefined"
       class="snapshot-bg"
+      :class="{ 'is-ready': imgReady }"
       draggable="false"
       alt=""
+      @load="onSnapshotLoad"
+      @error="onSnapshotError"
     />
     <div class="snapshot-dim" :class="{ 'snapshot-dim--fallback': snapshotFailed }"></div>
   </div>
@@ -62,13 +66,54 @@ import {
 } from './pages'
 import SettingsNav from './SettingsNav.vue'
 import { useUIStore } from '../../stores/modules/ui/ui'
-import { ref, watch, computed, type Component } from 'vue'
+import { ref, watch, computed, nextTick, type Component } from 'vue'
 import { isWindows } from '@/utils/platform'
 import { useSettingsSnapshot } from '@/composables/useSettingsSnapshot'
 
 const uiStore = useUIStore()
 const { snapshotSrc, snapshotFailed } = useSettingsSnapshot()
 const isWindowsMode = computed(() => isWindows())
+
+// 快照图就绪再淡入：避免 file:// 解码未完成时的闪白/半帧
+const imgReady = ref(false)
+const snapshotImgRef = ref<HTMLImageElement | null>(null)
+
+function onSnapshotLoad() {
+  imgReady.value = true
+}
+
+function onSnapshotError() {
+  imgReady.value = false
+  // 图片解码失败则走兜底深色遮罩
+  snapshotFailed.value = true
+}
+
+watch(snapshotSrc, (newVal) => {
+  if (!newVal || snapshotFailed.value) {
+    imgReady.value = false
+    return
+  }
+  imgReady.value = false
+  // 已缓存图片可能同步完成，nextTick 检查 complete 兜底
+  nextTick(() => {
+    const el = snapshotImgRef.value
+    if (el && el.complete && el.naturalWidth > 0) {
+      imgReady.value = true
+    }
+  })
+})
+
+watch(snapshotFailed, (failed) => {
+  if (failed) imgReady.value = false
+  else if (snapshotSrc.value) {
+    // 从失败恢复且已有图时，重新检查就绪
+    imgReady.value = false
+    nextTick(() => {
+      const el = snapshotImgRef.value
+      if (el && el.complete && el.naturalWidth > 0) imgReady.value = true
+    })
+  }
+})
 
 // 获取 A 组件和 B 组件的 Ref 实例
 const settingsNavRef = ref<InstanceType<typeof SettingsNav> | null>(null)
@@ -110,6 +155,14 @@ watch(
     }
   },
   { immediate: true },
+)
+
+// 关闭遮罩时重置就绪态，供下次打开复用（随外层 opacity 一起淡出，无需内层反向动画）
+watch(
+  () => shouldShowOverlay.value,
+  (show) => {
+    if (!show) imgReady.value = false
+  },
 )
 
 // ========== 手机端左右滑动切换标签 ==========
@@ -267,12 +320,19 @@ defineExpose({
   filter: blur(8px) brightness(0.85);
   transform: scale(1.02);
   display: block;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.snapshot-bg.is-ready {
+  opacity: 1;
 }
 
 .snapshot-dim {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
+  transition: background 0.3s ease;
 }
 
 .snapshot-dim--fallback {
