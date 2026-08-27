@@ -13,7 +13,7 @@
     <GameDialog ref="gameDialogRef" @player-continued="manualTriggerContinue" />
 
     <!-- 原有的菜单按钮 -->
-    <div id="menu-panel">
+    <div id="menu-panel" ref="menuPanelRef">
       <ToolActivityStatus v-if="!(gameStore.runningScript && gameStore.runningScript.isRunning)" />
       <Button
         type="nav"
@@ -62,7 +62,9 @@
 
   import FullAccessWarning from "@/components/tools/FullAccessWarning.vue";
   import ImageSourcePicker from "@/components/ui/ImageSourcePicker.vue";
+  import { useHideForSnapshot } from "@/composables/useHideForSnapshot";
   import { useSettingsSnapshot } from "@/composables/useSettingsSnapshot";
+  import { useSettingsStore } from "../../stores/modules/settings";
   import { isAndroid, isWindows } from "@/utils/platform";
   import GameExtraUI from "../game/standard/GameExtraUI.vue";
 
@@ -76,6 +78,7 @@
   const router = useRouter();
   const uiStore = useUIStore();
   const gameStore = useGameStore();
+  const settingsStore = useSettingsStore();
 
   // 首次加载过渡状态：仅当本次 session 未播放过且 localStorage 未标记时播放
   const showLoading = ref(!loadingShownThisSession && !localStorage.getItem(LOADING_STORAGE_KEY));
@@ -93,20 +96,37 @@
   };
 
   const gameDialogRef = ref<InstanceType<typeof GameDialog> | null>(null);
+  const menuPanelRef = ref<HTMLElement | null>(null);
   const settingsSnapshot = useSettingsSnapshot();
+  const { hide: hideForSnapshot, restore: restoreForSnapshot } = useHideForSnapshot();
   let settingsSnapshotSession: number | null = null;
 
   const openSettings = async () => {
     // 存档截图（原逻辑，保留用于存档预览）
     gameStore.captureScreenshot();
-    // Windows 静态背景快照
+    // Windows 静态背景快照 — 非阻塞：hide → capture → 立即开设置 → await → finally restore
     if (isWindows()) {
-      settingsSnapshot
-        .capture()
-        .then((result) => {
+      const el = menuPanelRef.value;
+      (async () => {
+        let capturePromise: Promise<string | null> | null = null;
+        try {
+          await hideForSnapshot(el);
+          capturePromise = settingsSnapshot.capture();
+          uiStore.toggleSettings(true);
+          uiStore.setSettingsTab("text");
+          const result = await capturePromise;
           if (result) settingsSnapshotSession = settingsSnapshot.snapshotSessionId.value || null;
-        })
-        .catch((e) => console.warn("[MainChat] settings snapshot failed:", e));
+        } catch (e) {
+          console.warn("[MainChat] settings snapshot failed:", e);
+          // 失败也需打开设置，避免阻塞
+          uiStore.toggleSettings(true);
+          uiStore.setSettingsTab("text");
+        } finally {
+          restoreForSnapshot(el);
+        }
+        if (capturePromise) capturePromise.catch(() => restoreForSnapshot(el));
+      })();
+      return;
     }
     uiStore.toggleSettings(true);
     uiStore.setSettingsTab("text");
@@ -155,14 +175,13 @@
   });
 
   /* 自动模式（AUTO）逻辑：事件驱动，非轮询
-   * 当且仅当以下全部满足时，延迟 1 秒自动推进下一句：
+   * 当且仅当以下全部满足时，延迟 settingsStore.autoAdvanceDelay（默认 1000ms，可在设置→文字中调节）自动推进下一句：
    * 1. 自动模式开启
    * 2. 当前处于 responding 状态
    * 3. 当前台词打字机已结束
    * 4. 当前台词语音已播放完毕
    * 用户手动推进时取消当前调度。
    */
-  const AUTO_ADVANCE_DELAY_MS = 1000;
 
   const typingFinished = ref(true);
   const audioFinished = ref(true);
@@ -193,7 +212,7 @@
         typingFinished.value = true;
         audioFinished.value = true;
       }
-    }, AUTO_ADVANCE_DELAY_MS);
+    }, settingsStore.autoAdvanceDelay);
   };
 
   // 音频开始播放

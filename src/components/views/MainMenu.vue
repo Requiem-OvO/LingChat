@@ -84,10 +84,11 @@
 <script setup lang="ts">
   import type { WebInitData } from "@/api/services/game-info";
   import { getScriptList, type ScriptSummary } from "@/api/services/script-info";
+  import { useHideForSnapshot } from "@/composables/useHideForSnapshot";
   import { useSettingsSnapshot } from "@/composables/useSettingsSnapshot";
   import { isWindows } from "@/utils/platform";
   import { invoke } from "@tauri-apps/api/core";
-  import { computed, nextTick, onMounted, ref, watch } from "vue";
+  import { computed, onMounted, ref, watch } from "vue";
   import { useI18n } from "vue-i18n";
   import { useRouter } from "vue-router";
   import { useGameStore } from "../../stores/modules/game";
@@ -135,6 +136,7 @@
     return "before:content-[''] before:absolute before:inset-0 before:backdrop-blur-[12px] before:backdrop-brightness-90 before:z-10 before:pointer-events-none";
   });
   const settingsSnapshot = useSettingsSnapshot();
+  const { hide: hideForSnapshot, restore: restoreForSnapshot, resolveEl } = useHideForSnapshot();
   let settingsSnapshotSession: number | null = null;
 
   // DOM Refs
@@ -194,48 +196,43 @@
     }
   };
 
-  async function hideMenuForSnapshot(): Promise<void> {
-    const raw = containerRef.value as unknown as HTMLElement | { $el?: HTMLElement } | null;
-    const el = (raw as { $el?: HTMLElement })?.$el ?? (raw as HTMLElement | null);
-    if (!el || !(el instanceof HTMLElement)) return;
-    el.style.visibility = "hidden";
-    await nextTick();
-    // 双 rAF 确保重绘完成再截
-    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-  }
-
-  function restoreMenuVisibility() {
-    const raw = containerRef.value as unknown as HTMLElement | { $el?: HTMLElement } | null;
-    const el = (raw as { $el?: HTMLElement })?.$el ?? (raw as HTMLElement | null);
-    if (el && el instanceof HTMLElement) el.style.visibility = "";
-  }
-
   async function handleOpenSettings(tab?: string) {
-    // Windows：非阻塞快照 — 先隐藏菜单抢拍，再立即打开设置，背景就绪后自动替换
+    // Windows：非阻塞快照 — hide → capture → 立即开设置 → await → finally restore
+    // 设置页下一帧即以 dim 占位出现，快照后台 0~800ms 就绪后淡入替换，不阻塞打开
     if (isWindowsMode.value) {
+      const el = resolveEl(containerRef.value);
+      // 后台执行隐藏与捕获，不阻塞设置页打开
       (async () => {
-        await hideMenuForSnapshot();
         let capturePromise: Promise<string | null> | null = null;
         try {
+          await hideForSnapshot(el);
           capturePromise = settingsSnapshot.capture();
-          restoreMenuVisibility();
+          // 立即打开设置（按钮仍 hidden，不会被拍）
+          uiStore.toggleSettings(true);
+          if (tab === "save") {
+            currentPage.value = "save";
+            uiStore.setSettingsTab("save");
+          } else {
+            currentPage.value = "settings";
+          }
           const result = await capturePromise;
           if (result) {
             settingsSnapshotSession = settingsSnapshot.snapshotSessionId.value || null;
           }
         } catch (e) {
           console.warn("[MainMenu] snapshot capture error:", e);
-          restoreMenuVisibility();
+        } finally {
+          restoreForSnapshot(el);
+          // 截图完成后才暂停动画，需守卫：若用户已快速关闭设置则不再暂停
+          if (uiStore.showSettings && currentPage.value !== "mainMenu") {
+            transientSuspend.value = true;
+          }
         }
         if (capturePromise) {
-          capturePromise.catch(() => restoreMenuVisibility());
-        }
-        // 截图完成后暂停动画
-        // 需守卫：若用户已快速关闭设置，则不再暂停
-        if (uiStore.showSettings && currentPage.value !== "mainMenu") {
-          transientSuspend.value = true;
+          capturePromise.catch(() => restoreForSnapshot(el));
         }
       })();
+      return;
     }
     uiStore.toggleSettings(true);
     if (tab === "save") {

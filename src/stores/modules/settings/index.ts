@@ -2,18 +2,18 @@
  * 统一设置管理 Store
  * 集中管理所有用户偏好设置，自动持久化到 localStorage
  */
-import { setCurrentBackground } from '@/api/services/background'
-import { setSceneAwareness } from '@/api/services/scene'
 import { setHdrMode } from '@/api/services/config'
-import { defineStore } from 'pinia'
+import { setSceneAwareness } from '@/api/services/scene'
 import type { ShortcutAction, ShortcutBinding } from '@/utils/shortcuts'
 import { DEFAULT_SHORTCUTS, sanitizeShortcuts } from '@/utils/shortcuts'
+import { defineStore } from 'pinia'
 
 // 默认设置值
 export const DEFAULT_SETTINGS = {
   // 文本设置
   text: {
     speed: 80, // 打字速度 (0-100)
+    autoAdvanceDelay: 1000, // 自动模式自动推进延迟 (ms, 0-2000)
     animation: true, // 页面切换动画
     inlineMotionText: false, // 内联动作文本（单次显示台词+灰字动作）
     sedentaryReminder: false, // 久坐喝水提醒
@@ -68,6 +68,7 @@ export const DEFAULT_SETTINGS = {
 // 设置状态类型
 export interface TextSettings {
   speed: number
+  autoAdvanceDelay: number
   animation: boolean
   inlineMotionText: boolean
   sedentaryReminder: boolean
@@ -148,6 +149,8 @@ export const useSettingsStore = defineStore('settings', {
 
     // 文字速度
     textSpeed: (state) => state.text.speed,
+    // 自动模式自动推进延迟 (ms)
+    autoAdvanceDelay: (state) => state.text.autoAdvanceDelay,
     // 对话音效开关
     chatEffectSound: (state) => state.audio.chatEffectSound,
     // 背景效果
