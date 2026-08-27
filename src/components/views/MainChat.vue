@@ -55,6 +55,7 @@
   import { onMounted, ref, watch } from "vue";
   import { useRouter } from "vue-router";
   import { useGameStore } from "../../stores/modules/game";
+  import { useSettingsStore } from "../../stores/modules/settings";
   import { useUIStore } from "../../stores/modules/ui/ui";
   import { Button } from "../base";
   import { GameBackground, GameDialog, GameRolesStage } from "../game/standard";
@@ -64,7 +65,6 @@
   import ImageSourcePicker from "@/components/ui/ImageSourcePicker.vue";
   import { useHideForSnapshot } from "@/composables/useHideForSnapshot";
   import { useSettingsSnapshot } from "@/composables/useSettingsSnapshot";
-  import { useSettingsStore } from "../../stores/modules/settings";
   import { isAndroid, isWindows } from "@/utils/platform";
   import GameExtraUI from "../game/standard/GameExtraUI.vue";
 
